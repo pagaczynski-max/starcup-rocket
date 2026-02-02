@@ -8,7 +8,10 @@ const PORT = process.env.PORT || 3000;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  // aide un peu sur mobile (moins de fallback polling)
+  transports: ["websocket", "polling"],
+});
 
 app.use(express.static("public"));
 
@@ -26,41 +29,14 @@ app.get("/player", (req, res) => {
   res.redirect("/player.html" + qs);
 });
 
-// Rooms storage
 const rooms = {};
-
-/**
- * rooms[ROOM] = {
- *   createdAt,
- *   state: "lobby"|"running"|"ended",
- *   startedAt,
- *   endedAt,
- *   winnerId,
- *   startedPlayerCount,
- *   seed,
- *   worldSpeed,
- *   nextSpawnAt,
- *   playersBySid: { [sid]: {id,pseudo,color,x,alive,score,lastDeathAt} },
- *   cheersByPlayerId: { [pid]: number },
- *   obstacles: [ {id,type,x,y,w,h,vy} ]
- * }
- */
 
 function makeRoomCode() {
   return nanoid(6).toUpperCase();
 }
 
 function randomColor() {
-  // Palette néon lisible sur fond sombre
-  const palette = [
-    "#38E8FF", // cyan
-    "#FF4FD8", // pink
-    "#9B5CFF", // purple
-    "#4DFFB5", // mint
-    "#FFD24D", // gold
-    "#4DA3FF", // blue
-    "#FFFFFF",
-  ];
+  const palette = ["#38E8FF", "#FF4FD8", "#9B5CFF", "#4DFFB5", "#FFD24D", "#4DA3FF", "#FFFFFF"];
   return palette[Math.floor(Math.random() * palette.length)];
 }
 
@@ -73,7 +49,7 @@ app.get("/api/create-room", async (req, res) => {
   const room = makeRoomCode();
   rooms[room] = {
     createdAt: Date.now(),
-    state: "lobby",
+    state: "lobby", // lobby | running | ended
     startedAt: null,
     endedAt: null,
     winnerId: null,
@@ -96,30 +72,26 @@ app.get("/join/:room", (req, res) => {
   res.redirect(`/player.html?room=${encodeURIComponent(room)}`);
 });
 
-// --- Game constants (MUST match player.js canvas logic) ---
-const TICK_MS = 50; // 20 ticks/s
+// --- Game constants (must match player/projector canvas logic) ---
+const TICK_MS = 50;
 const W = 640;
 const H = 720;
 
-// Bottom control zone in canvas coords
 const CONTROL_H = 160;
 const BOUNDARY_Y = H - CONTROL_H;
 
-// Player hitbox
 const PLAYER_W = 26;
 const PLAYER_H = 42;
-
-// Player sits with its bottom on the boundary line
 const PLAYER_Y = BOUNDARY_Y - PLAYER_H;
 
-// Difficulty tuning (Dino-ish: speed rises + spawn gets denser)
-const START_SPEED = 5.0;     // départ
-const SPEED_LINEAR = 0.28;   // +0.28 par seconde -> ça monte vite
-const SPEED_MAX = 26.0;      // cap
+// Difficulty (accélère bien + spawn plus dense)
+const START_SPEED = 5.0;
+const SPEED_LINEAR = 0.30;
+const SPEED_MAX = 28.0;
 
-const SPAWN_START = 820;     // ms au début
-const SPAWN_MIN = 220;       // ms min
-const SPAWN_DECAY = 14.0;    // réduction (ms) par seconde
+const SPAWN_START = 820; // ms
+const SPAWN_MIN = 220;
+const SPAWN_DECAY = 15.0;
 
 const MAX_OBS_ON_SCREEN = 10;
 
@@ -131,9 +103,8 @@ function bboxCollide(ax, ay, aw, ah, bx, by, bw, bh) {
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-// Only 3 types, simple, readable
+// 3 types maximum, lisibles
 function obstacleSpec(type) {
-  // w/h in canvas pixels
   if (type === "asteroid") return { w: 52, h: 52 };
   if (type === "ufo") return { w: 64, h: 36 };
   if (type === "satellite") return { w: 78, h: 28 };
@@ -147,16 +118,14 @@ function pickObstacleType() {
   return "ufo";
 }
 
-function spawnObstacle(R, now, worldSpeed) {
+function spawnObstacle(R, worldSpeed) {
   const type = pickObstacleType();
   const spec = obstacleSpec(type);
 
   const x = Math.floor(Math.random() * (W - spec.w));
   const y = -spec.h - 6;
 
-  // Obstacles: no sideways movement, only scrolling down
-  // Small random factor to avoid perfect spacing feel
-  const vy = worldSpeed * (0.92 + Math.random() * 0.16);
+  const vy = worldSpeed * (0.95 + Math.random() * 0.12);
 
   R.obstacles.push({
     id: nanoid(8),
@@ -169,7 +138,7 @@ function spawnObstacle(R, now, worldSpeed) {
   });
 }
 
-// --- Game loop (authoritative server) ---
+// --- Game loop ---
 setInterval(() => {
   const now = Date.now();
 
@@ -178,43 +147,31 @@ setInterval(() => {
     if (R.state !== "running") continue;
 
     const players = Object.values(R.playersBySid);
-
     const elapsedSec = (now - R.startedAt) / 1000;
 
-    // Speed curve (fast ramp)
-    const speed = START_SPEED + (SPEED_LINEAR * elapsedSec);
-    const worldSpeed = Math.min(SPEED_MAX, speed);
+    const worldSpeed = Math.min(SPEED_MAX, START_SPEED + SPEED_LINEAR * elapsedSec);
     R.worldSpeed = worldSpeed;
 
-    // Spawn interval shrinks over time
-    const spawnEvery = Math.max(
-      SPAWN_MIN,
-      SPAWN_START - Math.floor(elapsedSec * SPAWN_DECAY)
-    );
+    const spawnEvery = Math.max(SPAWN_MIN, SPAWN_START - Math.floor(elapsedSec * SPAWN_DECAY));
 
     if ((!R.nextSpawnAt || now >= R.nextSpawnAt) && R.obstacles.length < MAX_OBS_ON_SCREEN) {
       R.nextSpawnAt = now + spawnEvery;
-      spawnObstacle(R, now, worldSpeed);
+      spawnObstacle(R, worldSpeed);
 
-      // occasionally spawn a second one later in the run
       if (elapsedSec > 18 && Math.random() < 0.22 && R.obstacles.length < MAX_OBS_ON_SCREEN) {
-        spawnObstacle(R, now, worldSpeed);
+        spawnObstacle(R, worldSpeed);
       }
     }
 
-    // Move obstacles down
-    for (const o of R.obstacles) {
-      o.y += o.vy;
-    }
+    for (const o of R.obstacles) o.y += o.vy;
 
-    // Cleanup: once passed the boundary, they are "avoided" => remove
+    // “évité” => dès que ça passe la ligne, on enlève
     R.obstacles = R.obstacles.filter(o => o.y < BOUNDARY_Y + 30);
 
-    // Score + collisions
+    // score + collisions
     for (const p of players) {
       if (!p.alive) continue;
 
-      // Score: tenths of sec (similar feel)
       p.score = Math.floor((now - R.startedAt) / 100);
 
       const px = clamp(p.x, 0, 1) * (W - PLAYER_W);
@@ -237,9 +194,8 @@ setInterval(() => {
       }
     }
 
-    // End conditions
+    // end
     const aliveNow = players.filter(p => p.alive);
-
     if (R.startedPlayerCount <= 1) {
       if (aliveNow.length === 0) {
         R.state = "ended";
@@ -254,7 +210,6 @@ setInterval(() => {
       }
     }
 
-    // Global payload (projector + everyone)
     const payload = {
       room,
       state: R.state,
@@ -263,7 +218,6 @@ setInterval(() => {
       winnerId: R.winnerId,
       seed: R.seed,
       worldSpeed: R.worldSpeed,
-      // expose boundary constants for projector display (optional)
       boundaryY: BOUNDARY_Y,
       controlH: CONTROL_H,
       players: players.map(p => ({
@@ -287,20 +241,13 @@ setInterval(() => {
 
     io.to(room).emit("state", payload);
 
-    // Personal payload per player
     for (const sid of Object.keys(R.playersBySid)) {
       const p = R.playersBySid[sid];
       io.to(sid).emit("myState", {
         room,
         state: R.state,
         winnerId: R.winnerId,
-        me: {
-          id: p.id,
-          pseudo: p.pseudo,
-          alive: p.alive,
-          score: p.score,
-          x: p.x,
-        },
+        me: { id: p.id, pseudo: p.pseudo, alive: p.alive, score: p.score, x: p.x },
       });
     }
   }
@@ -329,11 +276,12 @@ io.on("connection", (socket) => {
     socket.emit("ok", { room: code });
   });
 
+  // ✅ IMPORTANT: autoriser join tant que ce n'est PAS "running"
   socket.on("player:join", ({ room, pseudo }) => {
     const code = String(room || "").toUpperCase();
     const R = rooms[code];
     if (!R) return socket.emit("err", "Room introuvable.");
-    if (R.state !== "lobby") return socket.emit("err", "Partie déjà lancée.");
+    if (R.state === "running") return socket.emit("err", "Partie en cours. Attends la prochaine.");
 
     const cleanPseudo = String(pseudo || "").trim().slice(0, 16);
     if (!cleanPseudo) return socket.emit("err", "Pseudo requis.");
@@ -362,11 +310,14 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ✅ START = "nouvelle manche" (rejouable à l'infini)
   socket.on("host:start", ({ room }) => {
     const code = String(room || "").toUpperCase();
     const R = rooms[code];
     if (!R) return socket.emit("err", "Room introuvable.");
-    if (R.state !== "lobby") return;
+
+    // si déjà running, on ignore
+    if (R.state === "running") return;
 
     R.state = "running";
     R.startedAt = Date.now();
@@ -390,6 +341,8 @@ io.on("connection", (socket) => {
     io.to(code).emit("game:started", { room: code, startedAt: R.startedAt, seed: R.seed });
   });
 
+  // (Optionnel) reset lobby garde utile pour forcer retour lobby si tu veux,
+  // mais tu peux retirer le bouton côté host si tu trouves inutile.
   socket.on("host:reset", ({ room }) => {
     const code = String(room || "").toUpperCase();
     const R = rooms[code];
@@ -428,7 +381,6 @@ io.on("connection", (socket) => {
     if (!p) return;
     if (R.state !== "running") return;
     if (!p.alive) return;
-
     p.x = clamp(Number(x), 0, 1);
   });
 
