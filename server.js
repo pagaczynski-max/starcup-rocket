@@ -12,25 +12,55 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
-// Routes propres
+// Routes
 app.get("/", (req, res) => res.redirect("/host"));
 app.get("/host", (req, res) => res.redirect("/host.html"));
-app.get("/projector", (req, res) =>
-  res.redirect("/projector.html" + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""))
-);
-app.get("/player", (req, res) =>
-  res.redirect("/player.html" + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""))
-);
 
+app.get("/projector", (req, res) => {
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect("/projector.html" + qs);
+});
+
+app.get("/player", (req, res) => {
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect("/player.html" + qs);
+});
+
+// Rooms storage
 const rooms = {};
+
+/**
+ * rooms[ROOM] = {
+ *   createdAt,
+ *   state: "lobby"|"running"|"ended",
+ *   startedAt,
+ *   endedAt,
+ *   winnerId,
+ *   startedPlayerCount,
+ *   seed,
+ *   worldSpeed,
+ *   nextSpawnAt,
+ *   playersBySid: { [sid]: {id,pseudo,color,x,alive,score,lastDeathAt} },
+ *   cheersByPlayerId: { [pid]: number },
+ *   obstacles: [ {id,type,x,y,w,h,vy} ]
+ * }
+ */
 
 function makeRoomCode() {
   return nanoid(6).toUpperCase();
 }
 
-// Palette néon
 function randomColor() {
-  const palette = ["#ff4fd8", "#38e8ff", "#7c4dff", "#ffd24d", "#ffffff"];
+  // Palette néon lisible sur fond sombre
+  const palette = [
+    "#38E8FF", // cyan
+    "#FF4FD8", // pink
+    "#9B5CFF", // purple
+    "#4DFFB5", // mint
+    "#FFD24D", // gold
+    "#4DA3FF", // blue
+    "#FFFFFF",
+  ];
   return palette[Math.floor(Math.random() * palette.length)];
 }
 
@@ -41,7 +71,6 @@ function baseUrl(req) {
 // API create room + QR
 app.get("/api/create-room", async (req, res) => {
   const room = makeRoomCode();
-
   rooms[room] = {
     createdAt: Date.now(),
     state: "lobby",
@@ -50,11 +79,11 @@ app.get("/api/create-room", async (req, res) => {
     winnerId: null,
     startedPlayerCount: 0,
     seed: Math.floor(Math.random() * 1e9),
+    worldSpeed: 0,
+    nextSpawnAt: 0,
     playersBySid: {},
     cheersByPlayerId: {},
     obstacles: [],
-    nextSpawnAt: 0,
-    worldSpeed: 0
   };
 
   const joinUrl = `${baseUrl(req)}/join/${room}`;
@@ -67,15 +96,32 @@ app.get("/join/:room", (req, res) => {
   res.redirect(`/player.html?room=${encodeURIComponent(room)}`);
 });
 
-// --- Game loop ---
+// --- Game constants (MUST match player.js canvas logic) ---
 const TICK_MS = 50; // 20 ticks/s
 const W = 640;
 const H = 720;
 
-// DOIT matcher player.js / projector.js
+// Bottom control zone in canvas coords
+const CONTROL_H = 160;
+const BOUNDARY_Y = H - CONTROL_H;
+
+// Player hitbox
 const PLAYER_W = 26;
 const PLAYER_H = 42;
-const PLAYER_Y = 600;
+
+// Player sits with its bottom on the boundary line
+const PLAYER_Y = BOUNDARY_Y - PLAYER_H;
+
+// Difficulty tuning (Dino-ish: speed rises + spawn gets denser)
+const START_SPEED = 5.0;     // départ
+const SPEED_LINEAR = 0.28;   // +0.28 par seconde -> ça monte vite
+const SPEED_MAX = 26.0;      // cap
+
+const SPAWN_START = 820;     // ms au début
+const SPAWN_MIN = 220;       // ms min
+const SPAWN_DECAY = 14.0;    // réduction (ms) par seconde
+
+const MAX_OBS_ON_SCREEN = 10;
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
@@ -85,21 +131,32 @@ function bboxCollide(ax, ay, aw, ah, bx, by, bw, bh) {
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-// tailles cohérentes avec sprites
+// Only 3 types, simple, readable
 function obstacleSpec(type) {
-  if (type === "asteroid") return { w: 48, h: 48 };
-  if (type === "satellite") return { w: 72, h: 30 };
-  if (type === "ufo") return { w: 60, h: 36 };
-  return { w: 48, h: 48 };
+  // w/h in canvas pixels
+  if (type === "asteroid") return { w: 52, h: 52 };
+  if (type === "ufo") return { w: 64, h: 36 };
+  if (type === "satellite") return { w: 78, h: 28 };
+  return { w: 52, h: 52 };
 }
 
-function spawnObstacle(R) {
-  const types = ["asteroid", "satellite", "ufo"];
-  const type = types[Math.floor(Math.random() * types.length)];
+function pickObstacleType() {
+  const r = Math.random();
+  if (r < 0.55) return "asteroid";
+  if (r < 0.78) return "satellite";
+  return "ufo";
+}
+
+function spawnObstacle(R, now, worldSpeed) {
+  const type = pickObstacleType();
   const spec = obstacleSpec(type);
 
   const x = Math.floor(Math.random() * (W - spec.w));
-  const y = -90;
+  const y = -spec.h - 6;
+
+  // Obstacles: no sideways movement, only scrolling down
+  // Small random factor to avoid perfect spacing feel
+  const vy = worldSpeed * (0.92 + Math.random() * 0.16);
 
   R.obstacles.push({
     id: nanoid(8),
@@ -107,25 +164,12 @@ function spawnObstacle(R) {
     x,
     y,
     w: spec.w,
-    h: spec.h
+    h: spec.h,
+    vy,
   });
 }
 
-/**
- * VITESSE "Dino-like"
- * speed = START + A*sqrt(t) + B*t
- */
-const START_SPEED = 4.6;
-const A_SQRT = 0.85;
-const B_LINEAR = 0.070;
-const SPEED_MAX = 18.0;
-
-// spawn contrôlé
-const SPAWN_START = 880;     // ms au début
-const SPAWN_MIN = 360;       // ms min
-const SPAWN_DECAY = 18;      // ms de moins par seconde
-const MAX_OBS_ON_SCREEN = 9;
-
+// --- Game loop (authoritative server) ---
 setInterval(() => {
   const now = Date.now();
 
@@ -134,13 +178,15 @@ setInterval(() => {
     if (R.state !== "running") continue;
 
     const players = Object.values(R.playersBySid);
+
     const elapsedSec = (now - R.startedAt) / 1000;
 
-    // vitesse
-    const speed = START_SPEED + (A_SQRT * Math.sqrt(elapsedSec)) + (B_LINEAR * elapsedSec);
-    R.worldSpeed = Math.min(SPEED_MAX, speed);
+    // Speed curve (fast ramp)
+    const speed = START_SPEED + (SPEED_LINEAR * elapsedSec);
+    const worldSpeed = Math.min(SPEED_MAX, speed);
+    R.worldSpeed = worldSpeed;
 
-    // spawn interval
+    // Spawn interval shrinks over time
     const spawnEvery = Math.max(
       SPAWN_MIN,
       SPAWN_START - Math.floor(elapsedSec * SPAWN_DECAY)
@@ -148,26 +194,28 @@ setInterval(() => {
 
     if ((!R.nextSpawnAt || now >= R.nextSpawnAt) && R.obstacles.length < MAX_OBS_ON_SCREEN) {
       R.nextSpawnAt = now + spawnEvery;
+      spawnObstacle(R, now, worldSpeed);
 
-      spawnObstacle(R);
-
-      // petit bonus après 12s, très léger
-      if (elapsedSec > 12 && Math.random() < 0.10 && R.obstacles.length < MAX_OBS_ON_SCREEN) {
-        spawnObstacle(R);
+      // occasionally spawn a second one later in the run
+      if (elapsedSec > 18 && Math.random() < 0.22 && R.obstacles.length < MAX_OBS_ON_SCREEN) {
+        spawnObstacle(R, now, worldSpeed);
       }
     }
 
-    // move obstacles (vertical only)
-    for (const o of R.obstacles) o.y += R.worldSpeed;
+    // Move obstacles down
+    for (const o of R.obstacles) {
+      o.y += o.vy;
+    }
 
-    // cleanup
-    R.obstacles = R.obstacles.filter(o => o.y < H + 140);
+    // Cleanup: once passed the boundary, they are "avoided" => remove
+    R.obstacles = R.obstacles.filter(o => o.y < BOUNDARY_Y + 30);
 
-    // score + collisions
+    // Score + collisions
     for (const p of players) {
       if (!p.alive) continue;
 
-      p.score = Math.floor((now - R.startedAt) / 90) + Math.floor(R.worldSpeed * 2);
+      // Score: tenths of sec (similar feel)
+      p.score = Math.floor((now - R.startedAt) / 100);
 
       const px = clamp(p.x, 0, 1) * (W - PLAYER_W);
       const py = PLAYER_Y;
@@ -182,14 +230,14 @@ setInterval(() => {
             playerId: p.id,
             x: px + PLAYER_W / 2,
             y: py + PLAYER_H / 2,
-            at: now
+            at: now,
           });
           break;
         }
       }
     }
 
-    // fin de partie
+    // End conditions
     const aliveNow = players.filter(p => p.alive);
 
     if (R.startedPlayerCount <= 1) {
@@ -206,7 +254,7 @@ setInterval(() => {
       }
     }
 
-    // payload
+    // Global payload (projector + everyone)
     const payload = {
       room,
       state: R.state,
@@ -215,6 +263,9 @@ setInterval(() => {
       winnerId: R.winnerId,
       seed: R.seed,
       worldSpeed: R.worldSpeed,
+      // expose boundary constants for projector display (optional)
+      boundaryY: BOUNDARY_Y,
+      controlH: CONTROL_H,
       players: players.map(p => ({
         id: p.id,
         pseudo: p.pseudo,
@@ -222,7 +273,7 @@ setInterval(() => {
         x: p.x,
         alive: p.alive,
         score: p.score,
-        cheers: R.cheersByPlayerId[p.id] || 0
+        cheers: R.cheersByPlayerId[p.id] || 0,
       })),
       obstacles: R.obstacles.map(o => ({
         id: o.id,
@@ -230,20 +281,26 @@ setInterval(() => {
         x: o.x,
         y: o.y,
         w: o.w,
-        h: o.h
-      }))
+        h: o.h,
+      })),
     };
 
     io.to(room).emit("state", payload);
 
-    // état perso
+    // Personal payload per player
     for (const sid of Object.keys(R.playersBySid)) {
       const p = R.playersBySid[sid];
       io.to(sid).emit("myState", {
         room,
         state: R.state,
         winnerId: R.winnerId,
-        me: { id: p.id, pseudo: p.pseudo, alive: p.alive, score: p.score, x: p.x }
+        me: {
+          id: p.id,
+          pseudo: p.pseudo,
+          alive: p.alive,
+          score: p.score,
+          x: p.x,
+        },
       });
     }
   }
@@ -260,7 +317,7 @@ io.on("connection", (socket) => {
     socket.emit("lobby", {
       room: code,
       state: R.state,
-      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color }))
+      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color })),
     });
   });
 
@@ -290,7 +347,7 @@ io.on("connection", (socket) => {
       x: 0.5,
       alive: true,
       score: 0,
-      lastDeathAt: null
+      lastDeathAt: null,
     };
 
     R.playersBySid[socket.id] = player;
@@ -301,7 +358,7 @@ io.on("connection", (socket) => {
     io.to(code).emit("lobby", {
       room: code,
       state: R.state,
-      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color }))
+      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color })),
     });
   });
 
@@ -317,8 +374,8 @@ io.on("connection", (socket) => {
     R.winnerId = null;
     R.obstacles = [];
     R.nextSpawnAt = 0;
+    R.worldSpeed = 0;
 
-    R.worldSpeed = START_SPEED;
     R.startedPlayerCount = Object.keys(R.playersBySid).length;
 
     for (const sid of Object.keys(R.playersBySid)) {
@@ -343,7 +400,6 @@ io.on("connection", (socket) => {
     R.endedAt = null;
     R.winnerId = null;
     R.startedPlayerCount = 0;
-
     R.obstacles = [];
     R.nextSpawnAt = 0;
     R.worldSpeed = 0;
@@ -360,7 +416,7 @@ io.on("connection", (socket) => {
     io.to(code).emit("lobby", {
       room: code,
       state: R.state,
-      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color }))
+      players: Object.values(R.playersBySid).map(p => ({ id: p.id, pseudo: p.pseudo, color: p.color })),
     });
   });
 
@@ -372,6 +428,7 @@ io.on("connection", (socket) => {
     if (!p) return;
     if (R.state !== "running") return;
     if (!p.alive) return;
+
     p.x = clamp(Number(x), 0, 1);
   });
 
@@ -383,25 +440,26 @@ io.on("connection", (socket) => {
 
     const from = R.playersBySid[socket.id];
     if (!from) return;
-    if (from.alive) return;
+    if (from.alive) return; // only spectators
 
     const tid = String(targetPlayerId || "");
     if (!tid) return;
+
     R.cheersByPlayerId[tid] = (R.cheersByPlayerId[tid] || 0) + 1;
   });
 
   socket.on("disconnect", () => {
-    for (const room of Object.keys(rooms)) {
-      const R = rooms[room];
+    for (const code of Object.keys(rooms)) {
+      const R = rooms[code];
       if (R.playersBySid[socket.id]) {
         const p = R.playersBySid[socket.id];
         delete R.playersBySid[socket.id];
         delete R.cheersByPlayerId[p.id];
 
-        io.to(room).emit("lobby", {
-          room,
+        io.to(code).emit("lobby", {
+          room: code,
           state: R.state,
-          players: Object.values(R.playersBySid).map(pp => ({ id: pp.id, pseudo: pp.pseudo, color: pp.color }))
+          players: Object.values(R.playersBySid).map(pp => ({ id: pp.id, pseudo: pp.pseudo, color: pp.color })),
         });
       }
     }
