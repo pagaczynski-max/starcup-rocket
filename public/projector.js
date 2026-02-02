@@ -1,4 +1,4 @@
-const socket = io();
+const socket = io({ transports: ["websocket", "polling"] });
 
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "").toUpperCase();
@@ -8,22 +8,14 @@ const ctx = c.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
 const overlay = document.getElementById("overlay");
-
 socket.emit("projector:join", { room });
 
-// Canvas coords
 const W = 640, H = 720;
-
-// Must match server
 const CONTROL_H = 160;
 const BOUNDARY_Y = H - CONTROL_H;
 
-const HIT_W = 26;
-const HIT_H = 42;
-const PLAYER_Y = BOUNDARY_Y - HIT_H;
-
-const ROCKET_DRAW_W = 40;
-const ROCKET_DRAW_H = 60;
+const HIT_W = 26, HIT_H = 42;
+const ROCKET_DRAW_W = 40, ROCKET_DRAW_H = 60;
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
@@ -43,9 +35,7 @@ Promise.all([
   loadImage("asteroid", "/assets/asteroid.png"),
   loadImage("ufo", "/assets/ufo.png"),
   loadImage("satellite", "/assets/satellite.png"),
-]).catch((e) => {
-  overlay.textContent = e?.message || String(e);
-});
+]).catch((e) => { overlay.textContent = e?.message || String(e); });
 
 // State
 let lastState = null;
@@ -83,10 +73,7 @@ function drawStars(worldSpeed) {
   const extra = Math.min(9, worldSpeed * 0.35);
   for (const st of stars) {
     st.y += st.sp + extra;
-    if (st.y > BOUNDARY_Y) {
-      st.y = -10;
-      st.x = Math.floor(Math.random() * W);
-    }
+    if (st.y > BOUNDARY_Y) { st.y = -10; st.x = Math.floor(Math.random() * W); }
     ctx.fillStyle = `hsla(${st.hue},100%,70%,0.32)`;
     ctx.fillRect(st.x, st.y, st.s, st.s);
   }
@@ -108,11 +95,13 @@ function drawObstacle(o) {
   ctx.drawImage(img, o.x, o.y, o.w, o.h);
 }
 
-function drawRocket(xCenter, yTop, color, alive) {
+function drawRocket(xCenter, color, alive) {
   const img = images.rocket;
   if (!img) return;
 
-  // subtle tint for player identity
+  const yTop = (BOUNDARY_Y - ROCKET_DRAW_H - 8); // ✅ visible entière, au-dessus de la ligne
+
+  // tint léger
   ctx.save();
   ctx.globalAlpha = alive ? 0.22 : 0.08;
   ctx.fillStyle = color || "rgba(255,255,255,.2)";
@@ -138,26 +127,21 @@ function drawExplosion(ex) {
 }
 
 function drawControlZone() {
-  // black opaque bottom
   ctx.fillStyle = "#000";
   ctx.fillRect(0, BOUNDARY_Y, W, CONTROL_H);
 
-  // boundary line
   ctx.fillStyle = "rgba(245,245,255,0.16)";
   ctx.fillRect(0, BOUNDARY_Y, W, 2);
 }
 
 function drawHUD(players, worldSpeed) {
-  // top-left
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(245,245,255,0.95)";
   ctx.font = "18px system-ui";
-
   const st = String(lastState?.state || "").toUpperCase();
   const spd = Math.round((worldSpeed || 0) * 10) / 10;
   ctx.fillText(`ROOM ${room} — ${st} — SPEED ${spd}`, 14, 28);
 
-  // leaderboard
   const top = players.slice(0, 8);
   ctx.font = "14px system-ui";
   let yy = 52;
@@ -179,11 +163,7 @@ function drawHUD(players, worldSpeed) {
 
 function loop() {
   let dx = 0, dy = 0;
-  if (shakeT > 0) {
-    shakeT--;
-    dx = (Math.random() * 10 - 5);
-    dy = (Math.random() * 10 - 5);
-  }
+  if (shakeT > 0) { shakeT--; dx = (Math.random() * 10 - 5); dy = (Math.random() * 10 - 5); }
 
   ctx.save();
   ctx.translate(dx, dy);
@@ -199,25 +179,20 @@ function loop() {
 
     for (const p of players) {
       const px = clamp(p.x, 0, 1) * (W - HIT_W);
-      const py = PLAYER_Y;
-
       const xCenter = px + HIT_W / 2;
-      const yTop = (BOUNDARY_Y - ROCKET_DRAW_H + 6);
 
-      drawRocket(xCenter, yTop, p.color, !!p.alive);
+      drawRocket(xCenter, p.color, !!p.alive);
 
-      // name
       ctx.textAlign = "center";
       ctx.font = "14px system-ui";
       ctx.fillStyle = p.alive ? "rgba(245,245,255,0.95)" : "rgba(245,245,255,0.35)";
-      ctx.fillText(p.pseudo, xCenter, py - 10);
+      ctx.fillText(p.pseudo, xCenter, (BOUNDARY_Y - HIT_H) - 10);
 
-      // cheers
       const cheers = p.cheers || 0;
       if (cheers > 0) {
         ctx.font = "12px system-ui";
         ctx.fillStyle = "rgba(245,245,255,0.95)";
-        ctx.fillText(`👏 ${cheers}`, xCenter, py - 26);
+        ctx.fillText(`👏 ${cheers}`, xCenter, (BOUNDARY_Y - HIT_H) - 26);
       }
     }
 
