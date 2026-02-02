@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Player</title>
+  <link rel="stylesheet" href="/common.css" />
+</head>
+
+<body class="black">
+  <!-- Canvas caché tant qu'on n'a pas rejoint -->
+  <div id="canvasWrap" class="hidden" style="position:fixed; inset:0; z-index:1;">
+    <canvas id="game" width="640" height="720"></canvas>
+  </div>
+
+  <!-- Join toujours au-dessus -->
+  <div id="joinWrap" style="position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:14px;">
+    <div id="screenJoin" class="card" style="width:min(520px, 92vw);">
+      <h1 style="margin-bottom:6px;">Rejoindre</h1>
+      <div id="roomLabel" class="mt"></div>
+
+      <div class="mt">
+        <input id="pseudo" placeholder="Ton pseudo" maxlength="16" />
+      </div>
+
+      <div class="mt row">
+        <button id="join" class="primary">OK</button>
+      </div>
+
+      <div id="err" class="err mt"></div>
+      <div class="mt">
+        <small>
+          Smartphone : maintiens ton pouce en bas et glisse ← →<br/>
+          PC : bouge la souris pour te déplacer.
+        </small>
+      </div>
+    </div>
+  </div>
+
+  <!-- UI de jeu -->
+  <div id="screenGame" class="hidden" style="position:fixed; inset:0; z-index:5;">
+    <div class="hud">
+      <div class="pill" id="status"></div>
+      <div class="pill" id="score"></div>
+    </div>
+
+    <div class="spectatorPanel hidden" id="spectatorPanel">
+      <div style="font-weight:1000;margin-bottom:8px;">Mode spectateur</div>
+      <div id="spectatorList"></div>
+      <small>Choisis un survivant et spam “👏” (visible sur le projecteur).</small>
+    </div>
+
+    <div class="centerMsg" id="centerMsg"></div>
+
+    <!-- zone tactile smartphone (sur PC elle ne gêne pas, mais on peut la garder) -->
+    <div class="touchZone" id="touchZone">
+      <div class="hint">Pouce ici (mobile) • Souris = déplacement (PC)</div>
+      <div class="thumb" id="thumb"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/player.js"></script>
+</body>
+</html>

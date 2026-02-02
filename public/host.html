@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Host</title>
+  <link rel="stylesheet" href="/common.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Host (animateur)</h1>
+
+    <div class="card">
+      <div class="row">
+        <button id="create">Créer une room</button>
+        <button id="openProjector" disabled>Ouvrir projecteur</button>
+        <button id="copyJoin" disabled>Copier lien joueur</button>
+      </div>
+
+      <div class="row mt">
+        <button id="start" disabled>Lancer</button>
+        <button id="reset" disabled>Reset lobby</button>
+      </div>
+
+      <div id="roomBox" class="mt"></div>
+      <div id="qrBox" class="mt"></div>
+    </div>
+
+    <div class="card mt">
+      <h2>Joueurs connectés</h2>
+      <div id="players"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/host.js"></script>
+</body>
+</html>
