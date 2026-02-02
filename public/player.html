@@ -2,60 +2,48 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
-  <title>Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Starcup Rocket</title>
   <link rel="stylesheet" href="/common.css" />
 </head>
+<body class="player">
 
-<body class="black">
-  <!-- Canvas caché tant qu'on n'a pas rejoint -->
-  <div id="canvasWrap" class="hidden" style="position:fixed; inset:0; z-index:1;">
-    <canvas id="game" width="640" height="720"></canvas>
-  </div>
+  <!-- Join overlay -->
+  <div id="joinWrap" class="overlay">
+    <div class="panel">
+      <div class="title">Rejoindre la partie</div>
+      <div id="roomLabel" class="muted"></div>
 
-  <!-- Join toujours au-dessus -->
-  <div id="joinWrap" style="position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:14px;">
-    <div id="screenJoin" class="card" style="width:min(520px, 92vw);">
-      <h1 style="margin-bottom:6px;">Rejoindre</h1>
-      <div id="roomLabel" class="mt"></div>
+      <input id="pseudo" class="input" placeholder="Ton pseudo" maxlength="16" autocomplete="nickname" />
+      <button id="join" class="btn">OK</button>
 
-      <div class="mt">
-        <input id="pseudo" placeholder="Ton pseudo" maxlength="16" />
-      </div>
-
-      <div class="mt row">
-        <button id="join" class="primary">OK</button>
-      </div>
-
-      <div id="err" class="err mt"></div>
-      <div class="mt">
-        <small>
-          Smartphone : maintiens ton pouce en bas et glisse ← →<br/>
-          PC : bouge la souris pour te déplacer.
-        </small>
-      </div>
+      <div id="err" class="err"></div>
+      <div class="hint">Astuce : sur PC tu peux tester au clavier/souris.</div>
     </div>
   </div>
 
-  <!-- UI de jeu -->
-  <div id="screenGame" class="hidden" style="position:fixed; inset:0; z-index:5;">
-    <div class="hud">
-      <div class="pill" id="status"></div>
-      <div class="pill" id="score"></div>
+  <!-- Game -->
+  <div id="screenGame" class="screen hidden">
+    <div id="hud" class="hud">
+      <div id="status">Lobby</div>
+      <div id="score"></div>
     </div>
 
-    <div class="spectatorPanel hidden" id="spectatorPanel">
-      <div style="font-weight:1000;margin-bottom:8px;">Mode spectateur</div>
-      <div id="spectatorList"></div>
-      <small>Choisis un survivant et spam “👏” (visible sur le projecteur).</small>
+    <div id="gameWrap">
+      <canvas id="game" width="640" height="720"></canvas>
+      <div id="centerMsg" class="centerMsg"></div>
     </div>
 
-    <div class="centerMsg" id="centerMsg"></div>
+    <!-- bottom control zone (opaque) -->
+    <div id="controlZone">
+      <div class="czLabel">Garde le pouce ici</div>
+      <div id="thumb"></div>
+    </div>
 
-    <!-- zone tactile smartphone (sur PC elle ne gêne pas, mais on peut la garder) -->
-    <div class="touchZone" id="touchZone">
-      <div class="hint">Pouce ici (mobile) • Souris = déplacement (PC)</div>
-      <div class="thumb" id="thumb"></div>
+    <!-- spectator panel -->
+    <div id="spectatorPanel" class="spectator hidden">
+      <div class="specTitle">Soutiens les survivants 👇</div>
+      <div id="spectatorList" class="specList"></div>
     </div>
   </div>
 
