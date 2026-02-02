@@ -2,13 +2,26 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Projector</title>
   <link rel="stylesheet" href="/common.css" />
+  <style>
+    body { margin:0; background:#000; overflow:hidden; }
+    #wrap { position:fixed; inset:0; }
+    canvas { width:100vw; height:100vh; display:block; }
+    #overlay {
+      position:fixed; left:12px; top:10px; z-index:10;
+      color:rgba(245,245,255,.9);
+      font: 800 18px system-ui;
+      text-shadow: 0 2px 10px rgba(0,0,0,.6);
+    }
+  </style>
 </head>
-<body class="black">
-  <div id="overlay"></div>
-  <canvas id="c" width="640" height="720"></canvas>
+<body>
+  <div id="wrap">
+    <div id="overlay">…</div>
+    <canvas id="c" width="640" height="720"></canvas>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/projector.js"></script>
