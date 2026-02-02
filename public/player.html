@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Starcup Rocket</title>
   <link rel="stylesheet" href="/common.css" />
+  <link rel="stylesheet" href="/player.css" />
 </head>
-<body class="player">
+<body class="player neon-bg">
 
-  <!-- Join overlay -->
   <div id="joinWrap" class="overlay">
     <div class="panel">
       <div class="title">Rejoindre la partie</div>
@@ -18,13 +18,15 @@
       <button id="join" class="btn">OK</button>
 
       <div id="err" class="err"></div>
-      <div class="hint">Astuce : sur PC tu peux tester au clavier/souris.</div>
+
+      <div class="hint">
+        <b>Règle :</b> maintiens ton pouce en bas, glisse gauche/droite pour éviter les obstacles.
+      </div>
     </div>
   </div>
 
-  <!-- Game -->
   <div id="screenGame" class="screen hidden">
-    <div id="hud" class="hud">
+    <div class="hud">
       <div id="status">Lobby</div>
       <div id="score"></div>
     </div>
@@ -34,13 +36,11 @@
       <div id="centerMsg" class="centerMsg"></div>
     </div>
 
-    <!-- bottom control zone (opaque) -->
     <div id="controlZone">
-      <div class="czLabel">Garde le pouce ici</div>
+      <div class="czLabel">Maintiens ici + glisse ← →</div>
       <div id="thumb"></div>
     </div>
 
-    <!-- spectator panel -->
     <div id="spectatorPanel" class="spectator hidden">
       <div class="specTitle">Soutiens les survivants 👇</div>
       <div id="spectatorList" class="specList"></div>
