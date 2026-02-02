@@ -1,9 +1,9 @@
-const socket = io();
+const socket = io({ transports: ["websocket", "polling"] });
 
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "").toUpperCase();
 
-// --- DOM ---
+// DOM
 const joinWrap = document.getElementById("joinWrap");
 const roomLabel = document.getElementById("roomLabel");
 const pseudoInput = document.getElementById("pseudo");
@@ -25,27 +25,26 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-// --- Canvas logical size (must match <canvas width/height>) ---
+// Canvas logical size
 const W = 640, H = 720;
 
-// Control zone height in canvas coordinates (we draw it black too)
+// Must match server
 const CONTROL_H = 160;
 const BOUNDARY_Y = H - CONTROL_H;
 
-// Hitbox sizes (MUST match server.js)
 const HIT_W = 26;
 const HIT_H = 42;
 
-// Player sits on the boundary: bottom of hitbox at the boundary
+// The hitbox sits on the boundary
 const PLAYER_Y = BOUNDARY_Y - HIT_H;
 
-// Visual sizes
+// Visual sprite size
 const ROCKET_DRAW_W = 40;
 const ROCKET_DRAW_H = 60;
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
-// --- Assets loader ---
+// Assets
 const images = {};
 function loadImage(name, src) {
   return new Promise((resolve, reject) => {
@@ -62,13 +61,10 @@ Promise.all([
   loadImage("asteroid", "/assets/asteroid.png"),
   loadImage("ufo", "/assets/ufo.png"),
   loadImage("satellite", "/assets/satellite.png"),
-]).then(() => {
-  assetsReady = true;
-}).catch((e) => {
-  errDiv.textContent = e?.message || String(e);
-});
+]).then(() => { assetsReady = true; })
+  .catch((e) => { errDiv.textContent = e?.message || String(e); });
 
-// --- State ---
+// State
 let playerId = null;
 let gameState = "lobby";
 let meAlive = true;
@@ -83,7 +79,10 @@ let shakeT = 0;
 let flashT = 0;
 let explosions = [];
 
-// --- UI helpers ---
+// UI
+roomLabel.innerHTML = `<b>Room :</b> ${room || "(manquante)"}`;
+if (!room) errDiv.textContent = "Room manquante dans l’URL.";
+
 function showJoin(msg) {
   joinWrap.classList.remove("hidden");
   screenGame.classList.add("hidden");
@@ -100,23 +99,14 @@ function showGameUI() {
 function setThumbAlignedToShip(x01) {
   if (!thumb || !controlZone) return;
   const tzW = controlZone.clientWidth || 1;
-
-  // Map x01 (0..1) to the same horizontal space as the hitbox movement
-  // In canvas: px = x01 * (W - HIT_W)
-  // In pixels: we align thumb center to the ship center
-  const shipCenterPx = x01 * tzW;
-  thumb.style.left = `${shipCenterPx}px`;
+  thumb.style.left = `${clamp(x01, 0, 1) * tzW}px`;
 }
 
 function renderSpectator(players) {
   if (!spectatorList) return;
   const alive = players.filter(p => p.alive);
   spectatorList.innerHTML = "";
-
-  if (!alive.length) {
-    spectatorList.textContent = "(plus de survivants)";
-    return;
-  }
+  if (!alive.length) { spectatorList.textContent = "(plus de survivants)"; return; }
 
   alive.sort((a, b) => (b.score || 0) - (a.score || 0));
   for (const p of alive.slice(0, 10)) {
@@ -137,22 +127,14 @@ function renderSpectator(players) {
   }
 }
 
-// --- Init ---
-roomLabel.innerHTML = `<b>Room :</b> ${room || "(manquante)"}`;
-if (!room) showJoin("Room manquante dans l’URL. Utilise /join/XXXXXX ou player.html?room=XXXXXX.");
-else showJoin("");
+showJoin("");
 
-// Join handler
+// Join
 joinBtn.addEventListener("click", (e) => {
   e.preventDefault();
-  e.stopPropagation();
   errDiv.textContent = "";
 
-  if (!assetsReady) {
-    errDiv.textContent = "Assets non chargés (vérifie /assets/rocket.png etc.).";
-    return;
-  }
-
+  if (!assetsReady) { errDiv.textContent = "Assets non chargés (/assets/...)."; return; }
   const pseudo = pseudoInput.value.trim();
   if (!pseudo) { errDiv.textContent = "Pseudo requis."; return; }
   if (!room) { errDiv.textContent = "Room manquante."; return; }
@@ -165,22 +147,20 @@ joinBtn.addEventListener("click", (e) => {
     if (!playerId && joinBtn.disabled) {
       joinBtn.disabled = false;
       joinBtn.textContent = "OK";
-      if (!errDiv.textContent) errDiv.textContent = "Aucune réponse du serveur. (Room valide ?)";
+      if (!errDiv.textContent) errDiv.textContent = "Pas de réponse serveur (room ?).";
     }
   }, 1500);
 });
 
-pseudoInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") joinBtn.click();
-});
+pseudoInput.addEventListener("keydown", (e) => { if (e.key === "Enter") joinBtn.click(); });
 
 socket.on("connect_error", (err) => showJoin("Socket error: " + (err?.message || String(err))));
 socket.on("err", (msg) => showJoin(msg));
 
 socket.on("ok", (data) => {
   playerId = data.playerId || null;
-
   showGameUI();
+
   gameState = "lobby";
   meAlive = true;
   meScore = 0;
@@ -188,8 +168,7 @@ socket.on("ok", (data) => {
 
   statusDiv.textContent = "Lobby";
   scoreDiv.textContent = "";
-  centerMsg.textContent = "En attente du lancement…";
-
+  centerMsg.textContent = "Prêt ! Attends que l’animateur lance la manche.";
   spectatorPanel?.classList.add("hidden");
 
   setThumbAlignedToShip(meX01);
@@ -206,7 +185,6 @@ socket.on("game:started", () => {
 
 socket.on("myState", (s) => {
   if (String(s.room || "").toUpperCase() !== room) return;
-
   gameState = s.state;
 
   if (s.me) {
@@ -218,14 +196,14 @@ socket.on("myState", (s) => {
   if (gameState === "lobby") {
     statusDiv.textContent = "Lobby";
     scoreDiv.textContent = "";
-    centerMsg.textContent = "En attente du lancement…";
+    centerMsg.textContent = "Maintiens ton pouce en bas, glisse ← → pour éviter les obstacles.";
     spectatorPanel?.classList.add("hidden");
   } else if (gameState === "running") {
     scoreDiv.textContent = `Score: ${meScore}`;
     if (meAlive) {
       statusDiv.textContent = "En jeu";
-      spectatorPanel?.classList.add("hidden");
       centerMsg.textContent = "";
+      spectatorPanel?.classList.add("hidden");
     } else {
       statusDiv.textContent = "KO";
       centerMsg.textContent = "💀 Tu es mort — regarde le projecteur et soutiens les survivants !";
@@ -235,7 +213,7 @@ socket.on("myState", (s) => {
   } else if (gameState === "ended") {
     statusDiv.textContent = "Fin";
     scoreDiv.textContent = `Score: ${meScore}`;
-    centerMsg.textContent = "🏁 Partie terminée — regarde le gagnant sur le projecteur !";
+    centerMsg.textContent = "🏁 Manche terminée — regarde le gagnant sur le projecteur !";
     spectatorPanel?.classList.add("hidden");
   }
 
@@ -247,23 +225,27 @@ socket.on("state", (s) => {
   lastGlobalPlayers = s.players || [];
   lastObstacles = s.obstacles || [];
   lastWorldSpeed = Number(s.worldSpeed || 0);
-
   if (gameState === "running" && !meAlive) renderSpectator(lastGlobalPlayers);
 });
 
 socket.on("event:death", (e) => {
   if (String(e.room || "").toUpperCase() !== room) return;
   explosions.push({ x: e.x, y: e.y, t: 0 });
-  if (playerId && e.playerId === playerId) {
-    shakeT = 14;
-    flashT = 12;
-  }
+  if (playerId && e.playerId === playerId) { shakeT = 14; flashT = 12; }
 });
 
-// --- Input (control zone only) ---
+// ✅ Anti-latence: throttle input (max 25/s)
+let lastEmitAt = 0;
+const EMIT_EVERY_MS = 40;
+
 function emitX(x01) {
   if (gameState !== "running") return;
   if (!meAlive) return;
+
+  const now = performance.now();
+  if (now - lastEmitAt < EMIT_EVERY_MS) return;
+  lastEmitAt = now;
+
   socket.emit("player:input", { room, x: x01 });
 }
 
@@ -295,31 +277,27 @@ controlZone?.addEventListener("pointermove", (ev) => {
 controlZone?.addEventListener("pointerup", (ev) => {
   if (ev.pointerId === activePointerId) activePointerId = null;
 });
+controlZone?.addEventListener("pointercancel", () => (activePointerId = null));
 
-controlZone?.addEventListener("pointercancel", () => {
-  activePointerId = null;
-});
-
-// PC tests (mouse) - only when not touching
+// PC test
 window.addEventListener("mousemove", (ev) => {
   if (gameState !== "running") return;
   if (!meAlive) return;
-  // Map mouse across window width
   const x01 = clamp(ev.clientX / Math.max(1, window.innerWidth), 0, 1);
   meX01 = x01;
   setThumbAlignedToShip(x01);
   emitX(x01);
 });
 
-// --- Rendering ---
+// Render
 const stars = [];
 for (let i = 0; i < 170; i++) {
   stars.push({
     x: Math.floor(Math.random() * W),
-    y: Math.floor(Math.random() * (BOUNDARY_Y)), // stars only in play area
+    y: Math.floor(Math.random() * (BOUNDARY_Y)),
     sp: 1.0 + Math.random() * 3.0,
     s: Math.random() < 0.75 ? 2 : 3,
-    hue: Math.random() < 0.33 ? 190 : (Math.random() < 0.5 ? 285 : 320)
+    hue: Math.random() < 0.33 ? 190 : (Math.random() < 0.5 ? 285 : 320),
   });
 }
 
@@ -327,34 +305,16 @@ function drawStars() {
   ctx.fillStyle = "#050318";
   ctx.fillRect(0, 0, W, BOUNDARY_Y);
 
-  const extra = Math.min(7, lastWorldSpeed * 0.28);
+  const extra = Math.min(9, lastWorldSpeed * 0.35);
   for (const st of stars) {
     st.y += st.sp + extra;
-    if (st.y > BOUNDARY_Y) {
-      st.y = -10;
-      st.x = Math.floor(Math.random() * W);
-    }
+    if (st.y > BOUNDARY_Y) { st.y = -10; st.x = Math.floor(Math.random() * W); }
     ctx.fillStyle = `hsla(${st.hue},100%,70%,0.32)`;
     ctx.fillRect(st.x, st.y, st.s, st.s);
   }
 }
 
-function drawRocketVisual(xCenter, yTop) {
-  const img = images.rocket;
-  if (!img) return;
-
-  // Subtle glow behind the rocket
-  ctx.save();
-  ctx.globalAlpha = 0.12;
-  ctx.fillStyle = "rgba(56,232,255,1)";
-  ctx.fillRect(xCenter - ROCKET_DRAW_W / 2 - 10, yTop - 10, ROCKET_DRAW_W + 20, ROCKET_DRAW_H + 20);
-  ctx.restore();
-
-  ctx.drawImage(img, xCenter - ROCKET_DRAW_W / 2, yTop, ROCKET_DRAW_W, ROCKET_DRAW_H);
-}
-
 function drawObstacle(o) {
-  // draw only if still above boundary (otherwise it feels "already passed")
   if (o.y >= BOUNDARY_Y + 6) return;
 
   let img = null;
@@ -363,12 +323,27 @@ function drawObstacle(o) {
   else if (o.type === "satellite") img = images.satellite;
 
   if (!img) {
-    ctx.fillStyle = "rgba(245,245,255,0.7)";
+    ctx.fillStyle = "rgba(245,245,255,0.70)";
     ctx.fillRect(o.x, o.y, o.w, o.h);
     return;
   }
-
   ctx.drawImage(img, o.x, o.y, o.w, o.h);
+}
+
+function drawRocketVisual(xCenter) {
+  const img = images.rocket;
+  if (!img) return;
+
+  // ✅ fusée entièrement visible et légèrement au-dessus de la ligne
+  const yTop = (BOUNDARY_Y - ROCKET_DRAW_H - 8);
+
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = "rgba(56,232,255,1)";
+  ctx.fillRect(xCenter - ROCKET_DRAW_W/2 - 10, yTop - 10, ROCKET_DRAW_W + 20, ROCKET_DRAW_H + 20);
+  ctx.restore();
+
+  ctx.drawImage(img, xCenter - ROCKET_DRAW_W / 2, yTop, ROCKET_DRAW_W, ROCKET_DRAW_H);
 }
 
 function drawExplosion(ex) {
@@ -385,22 +360,17 @@ function drawExplosion(ex) {
 }
 
 function drawControlZoneOverlay() {
-  // Opaque black area in the canvas too (so even if something overlaps, it's black)
+  // black bottom area (only below boundary)
   ctx.fillStyle = "#000";
   ctx.fillRect(0, BOUNDARY_Y, W, CONTROL_H);
 
-  // boundary line
   ctx.fillStyle = "rgba(245,245,255,0.15)";
   ctx.fillRect(0, BOUNDARY_Y, W, 2);
 }
 
 function render() {
   let dx = 0, dy = 0;
-  if (shakeT > 0) {
-    shakeT--;
-    dx = (Math.random() * 10 - 5);
-    dy = (Math.random() * 10 - 5);
-  }
+  if (shakeT > 0) { shakeT--; dx = (Math.random() * 10 - 5); dy = (Math.random() * 10 - 5); }
 
   ctx.save();
   ctx.translate(dx, dy);
@@ -411,24 +381,14 @@ function render() {
 
   if (gameState === "running" && meAlive) {
     const px = clamp(meX01, 0, 1) * (W - HIT_W);
-    const py = PLAYER_Y;
-
     const xCenter = px + HIT_W / 2;
-
-    // Place rocket visually centered on the boundary line
-    // Rocket is taller than hitbox: we offset so it sits on the boundary
-    const yTop = (BOUNDARY_Y - ROCKET_DRAW_H + 6);
-
-    drawRocketVisual(xCenter, yTop);
-
-    // (optional debug hitbox)
-    // ctx.strokeStyle = "rgba(255,0,0,0.25)";
-    // ctx.strokeRect(px, py, HIT_W, HIT_H);
+    drawRocketVisual(xCenter);
   }
 
   explosions.forEach(drawExplosion);
   explosions = explosions.filter(e => e.t < 16);
 
+  // draw control zone last (does NOT cover rocket now because rocket is above)
   drawControlZoneOverlay();
 
   ctx.restore();
