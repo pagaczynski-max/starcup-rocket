@@ -2,33 +2,155 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Host</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Host (animateur)</title>
+
+  <!-- Si common.css existe, il s'applique. Sinon, le fallback inline garde un rendu joli -->
   <link rel="stylesheet" href="/common.css" />
+
+  <style>
+    :root{
+      --bg:#050318; --ink:rgba(245,245,255,.95); --muted:rgba(245,245,255,.65);
+      --pink:rgba(255,79,216,1); --blue:rgba(56,232,255,1); --line:rgba(245,245,255,.15);
+      --panel:rgba(10,5,28,.92);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; color:var(--ink); background:#000}
+    body{
+      background:
+        radial-gradient(1200px 600px at 50% 30%, rgba(56,232,255,.12), transparent 60%),
+        radial-gradient(900px 500px at 60% 50%, rgba(255,79,216,.12), transparent 60%),
+        rgba(0,0,0,.88);
+    }
+    .wrap{max-width:980px; margin:0 auto; padding:22px 16px 30px}
+    .top{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap}
+    h1{margin:0; font-size:26px; letter-spacing:.2px}
+    .muted{color:var(--muted)}
+    .panel{
+      border:1px solid rgba(245,245,255,.15);
+      border-radius:18px;
+      padding:16px;
+      background:var(--panel);
+      box-shadow:0 12px 40px rgba(0,0,0,.5);
+    }
+    .grid{display:grid; grid-template-columns: 1.2fr .8fr; gap:14px; margin-top:14px}
+    @media (max-width: 860px){ .grid{grid-template-columns:1fr} }
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    .btn{
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid rgba(245,245,255,.18);
+      color:var(--ink);
+      font-weight:900;
+      font-size:15px;
+      cursor:pointer;
+      background:linear-gradient(135deg, rgba(255,79,216,.85), rgba(56,232,255,.85));
+    }
+    .btn.secondary{
+      background:rgba(0,0,0,.35);
+    }
+    .btn:disabled{opacity:.55; cursor:not-allowed}
+    .input{
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid rgba(245,245,255,.15);
+      background:rgba(0,0,0,.35);
+      color:var(--ink);
+      outline:none;
+      font-size:16px;
+      min-width:180px;
+    }
+    .kpi{display:flex; gap:12px; flex-wrap:wrap; margin-top:10px}
+    .badge{
+      border:1px solid rgba(245,245,255,.16);
+      background:rgba(0,0,0,.28);
+      border-radius:999px;
+      padding:8px 10px;
+      font-weight:900;
+    }
+    .qr{
+      display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-top:12px
+    }
+    #qrImg{width:160px; height:160px; border-radius:14px; border:1px solid rgba(245,245,255,.16); background:rgba(0,0,0,.25)}
+    .linkbox{flex:1; min-width:260px}
+    .small{font-size:13px}
+    .players{margin-top:10px; display:flex; flex-direction:column; gap:8px}
+    .pRow{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:10px 12px; border-radius:14px;
+      border:1px solid rgba(245,245,255,.12); background:rgba(0,0,0,.25);
+    }
+    .dot{width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:8px}
+    .err{color:rgba(255,150,150,.95); font-weight:800; margin-top:10px; min-height:18px}
+    .ok{color:rgba(140,255,180,.95); font-weight:800; margin-top:10px; min-height:18px}
+    code{background:rgba(0,0,0,.35); padding:2px 6px; border-radius:8px; border:1px solid rgba(245,245,255,.12)}
+  </style>
 </head>
+
 <body>
   <div class="wrap">
-    <h1>Host (animateur)</h1>
-
-    <div class="card">
-      <div class="row">
-        <button id="create">Créer une room</button>
-        <button id="openProjector" disabled>Ouvrir projecteur</button>
-        <button id="copyJoin" disabled>Copier lien joueur</button>
+    <div class="top">
+      <div>
+        <h1>Host (animateur)</h1>
+        <div class="muted small">Crée une room, projette l’écran “Projector”, puis lance la manche.</div>
       </div>
-
-      <div class="row mt">
-        <button id="start" disabled>Lancer</button>
-        <button id="reset" disabled>Reset lobby</button>
-      </div>
-
-      <div id="roomBox" class="mt"></div>
-      <div id="qrBox" class="mt"></div>
+      <div class="badge">Starcup Rocket</div>
     </div>
 
-    <div class="card mt">
-      <h2>Joueurs connectés</h2>
-      <div id="players"></div>
+    <div class="grid">
+      <!-- LEFT -->
+      <div class="panel">
+        <div class="row">
+          <button id="createRoomBtn" class="btn">Créer une room</button>
+          <input id="roomInput" class="input" placeholder="ROOM (ex: A1B2C3)" maxlength="12" />
+          <button id="joinHostBtn" class="btn secondary">Se connecter à la room</button>
+        </div>
+
+        <div class="kpi">
+          <div class="badge">Room : <span id="roomLabel">—</span></div>
+          <div class="badge">État : <span id="stateLabel">—</span></div>
+          <div class="badge">Joueurs : <span id="countLabel">0</span></div>
+        </div>
+
+        <div class="qr">
+          <img id="qrImg" alt="QR Code" />
+          <div class="linkbox">
+            <div class="small muted">Lien joueur</div>
+            <div class="row" style="margin-top:6px">
+              <input id="playerLink" class="input" style="flex:1; min-width:260px" readonly />
+              <button id="copyPlayerBtn" class="btn secondary">Copier</button>
+            </div>
+
+            <div class="small muted" style="margin-top:10px">Projector</div>
+            <div class="row" style="margin-top:6px">
+              <input id="projectorLink" class="input" style="flex:1; min-width:260px" readonly />
+              <button id="openProjectorBtn" class="btn">Ouvrir</button>
+            </div>
+
+            <div class="small muted" style="margin-top:10px">
+              Astuce : tu peux aussi ouvrir directement <code>/projector?room=XXXXXX</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:14px">
+          <button id="startBtn" class="btn" disabled>Lancer une manche</button>
+          <button id="resetBtn" class="btn secondary" disabled>Reset lobby</button>
+        </div>
+
+        <div id="msgOk" class="ok"></div>
+        <div id="msgErr" class="err"></div>
+      </div>
+
+      <!-- RIGHT -->
+      <div class="panel">
+        <div style="font-weight:900; font-size:18px">Joueurs connectés</div>
+        <div class="muted small" style="margin-top:6px">
+          Les joueurs peuvent rejoindre tant que la manche n’est pas <b>en cours</b>.
+        </div>
+
+        <div id="players" class="players"></div>
+      </div>
     </div>
   </div>
 
